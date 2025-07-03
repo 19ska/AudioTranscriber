@@ -1,0 +1,18 @@
+# Xcode-specific
+DerivedData/
+build/
+*.xcuserstate
+*.xcworkspace
+xcuserdata/
+*.xcscheme
+
+# Audio recordings
+*.caf
+*.wav
+
+# Environment / secrets
+.env
+*.key
+
+# macOS metadata
+.DS_Store
