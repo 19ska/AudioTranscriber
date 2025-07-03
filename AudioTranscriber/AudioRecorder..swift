@@ -7,54 +7,168 @@
 
 import Foundation
 import AVFoundation
+import SwiftUI
+import Network
 
+@MainActor
 class AudioRecorder: NSObject, ObservableObject {
     private let engine = AVAudioEngine()
-    private var audioFile: AVAudioFile?
     private let fileManager = FileManager.default
+    private var audioFile: AVAudioFile?
+    private var segmentTimer: Timer?
+    private var retryCounts: [URL: Int] = [:]
+    private var failedSegments: [URL] = []
 
     @Published var isRecording = false
+    @Published var recordingURL: URL?
+    
+    private var monitor: NWPathMonitor?
+    private var isNetworkAvailable: Bool = true
+    private var fallbackTriggered = false
 
     override init() {
         super.init()
         setupNotifications()
+        setupNetworkMonitor()
     }
 
     func startRecording() {
         let session = AVAudioSession.sharedInstance()
         do {
-            try session.setCategory(.playAndRecord, options: [.defaultToSpeaker])
+            try session.setCategory(.playAndRecord, options: [.defaultToSpeaker, .allowBluetooth])
             try session.setActive(true)
 
-            let input = engine.inputNode
-            let format = input.outputFormat(forBus: 0)
-
-            let dir = fileManager.temporaryDirectory
-            let fileURL = dir.appendingPathComponent("recording_\(Date().timeIntervalSince1970).caf")
-            audioFile = try AVAudioFile(forWriting: fileURL, settings: format.settings)
-
-            input.installTap(onBus: 0, bufferSize: 1024, format: format) { buffer, _ in
-                do {
-                    try self.audioFile?.write(from: buffer)
-                } catch {
-                    print("Failed to write audio buffer: \(error)")
-                }
-            }
+            try startNewSegment()
 
             engine.prepare()
             try engine.start()
             isRecording = true
-            print("Recording started at \(fileURL)")
+            print("Recording started")
+
+            // Start 30-second timer
+            segmentTimer = Timer.scheduledTimer(withTimeInterval: 30.0, repeats: true) { [weak self] _ in
+                Task { await self?.rotateSegment() }
+            }
+
         } catch {
-            print("Failed to start recording: \(error)")
+            print("Failed to start recording: \(error.localizedDescription)")
         }
     }
 
     func stopRecording() {
+        segmentTimer?.invalidate()
+        segmentTimer = nil
         engine.inputNode.removeTap(onBus: 0)
         engine.stop()
         isRecording = false
-        print("Recording stopped.")
+        print("Recording stopped")
+    }
+
+    private func startNewSegment() throws {
+        let input = engine.inputNode
+        let format = input.outputFormat(forBus: 0)
+
+        let fileName = "recording_\(Int(Date().timeIntervalSince1970)).caf"
+        let fileURL = fileManager.temporaryDirectory.appendingPathComponent(fileName)
+        recordingURL = fileURL
+
+        audioFile = try AVAudioFile(forWriting: fileURL, settings: format.settings)
+
+        input.installTap(onBus: 0, bufferSize: 1024, format: format) { buffer, _ in
+            try? self.audioFile?.write(from: buffer)
+        }
+
+        print("Started segment: \(fileURL.lastPathComponent)")
+    }
+
+    private func rotateSegment() {
+        //print("Segment rotated at: \(Date())")
+        engine.inputNode.removeTap(onBus: 0)
+        engine.pause()
+
+        guard let fileURL = recordingURL else { return }
+
+        // Start transcription in background
+        transcribe(fileURL)
+
+        do {
+            try startNewSegment()
+            try engine.start()
+        } catch {
+            print("Failed to rotate segment: \(error.localizedDescription)")
+        }
+    }
+
+    private func transcribe(_ fileURL: URL) {
+        guard isNetworkAvailable else {
+            print("Network unavailable, queued segment: \(fileURL.lastPathComponent)")
+            failedSegments.append(fileURL)
+            return
+        }
+
+        Task {
+            do {
+                try await mockTranscriptionAPI(fileURL)
+                print("Transcription success: \(fileURL.lastPathComponent)")
+                retryCounts[fileURL] = 0
+            } catch {
+                print("Transcription failed: \(fileURL.lastPathComponent)")
+                let currentRetry = retryCounts[fileURL, default: 0] + 1
+                retryCounts[fileURL] = currentRetry
+
+                if currentRetry >= 5 {
+                    print("Fallback to local transcription for: \(fileURL.lastPathComponent)")
+                    fallbackToLocalTranscription(fileURL)
+                } else {
+                    failedSegments.append(fileURL)
+                    let delay = pow(2.0, Double(currentRetry))
+                    print("⏳ Retrying in \(delay) sec")
+                    DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+                        self.transcribe(fileURL)
+                    }
+                }
+            }
+        }
+    }
+
+    private func fallbackToLocalTranscription(_ fileURL: URL) {
+        // Placeholder: use Apple speech framework / Core ML
+        print("Local transcription triggered for \(fileURL.lastPathComponent)")
+    }
+
+    private func mockTranscriptionAPI(_ fileURL: URL) async throws {
+        // Simulate success/failure
+        let success = Bool.random()
+        try await Task.sleep(nanoseconds: 1_000_000_000) // simulate delay
+
+        if !success {
+            throw URLError(.badServerResponse)
+        }
+    }
+
+    private func setupNetworkMonitor() {
+        monitor = NWPathMonitor()
+        monitor?.pathUpdateHandler = { [weak self] path in
+            guard let self = self else { return }
+
+            DispatchQueue.main.async {
+                self.isNetworkAvailable = path.status == .satisfied
+                print("Network status: \(self.isNetworkAvailable ? "Online" : "Offline")")
+
+                if self.isNetworkAvailable {
+                    self.retryQueuedSegments()
+                }
+            }
+        }
+        let queue = DispatchQueue(label: "NetworkMonitor")
+        monitor?.start(queue: queue)
+    }
+
+    private func retryQueuedSegments() {
+        for fileURL in failedSegments {
+            transcribe(fileURL)
+        }
+        failedSegments.removeAll()
     }
 
     private func setupNotifications() {
@@ -73,8 +187,6 @@ class AudioRecorder: NSObject, ObservableObject {
 
         if type == .began {
             stopRecording()
-        } else if type == .ended {
-            startRecording() // optional: auto-resume
         }
     }
 }
