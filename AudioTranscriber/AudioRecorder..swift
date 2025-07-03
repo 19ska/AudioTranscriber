@@ -130,6 +130,56 @@ class AudioRecorder: NSObject, ObservableObject {
             }
         }
     }
+    
+    
+    private func whisperTranscriptionAPI(fileURL: URL) async throws {
+        guard let openAIKey = ProcessInfo.processInfo.environment["OPENAI_API_KEY"], !openAIKey.isEmpty else {
+            print("Missing OPENAI_API_KEY environment variable.")
+            return
+        }
+
+        var request = URLRequest(url: URL(string: "https://api.openai.com/v1/audio/transcriptions")!)
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(openAIKey)", forHTTPHeaderField: "Authorization")
+
+        let boundary = "Boundary-\(UUID().uuidString)"
+        request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+
+        var data = Data()
+
+        data.append("--\(boundary)\r\n".data(using: .utf8)!)
+        data.append("Content-Disposition: form-data; name=\"file\"; filename=\"\(fileURL.lastPathComponent)\"\r\n".data(using: .utf8)!)
+        data.append("Content-Type: audio/wav\r\n\r\n".data(using: .utf8)!)
+        data.append(try Data(contentsOf: fileURL))
+        data.append("\r\n".data(using: .utf8)!)
+
+        data.append("--\(boundary)\r\n".data(using: .utf8)!)
+        data.append("Content-Disposition: form-data; name=\"model\"\r\n\r\n".data(using: .utf8)!)
+        data.append("whisper-1\r\n".data(using: .utf8)!)
+
+        data.append("--\(boundary)--\r\n".data(using: .utf8)!)
+
+        request.httpBody = data
+      
+        // let (_, response) = try await URLSession.shared.data(for: request)
+        // if let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode != 200 {
+        //     throw URLError(.badServerResponse)
+        // }
+
+        // New debug printing
+        let (responseData, response) = try await URLSession.shared.data(for: request)
+
+        if let httpResponse = response as? HTTPURLResponse {
+            print("Status Code: \(httpResponse.statusCode)")
+
+            let responseString = String(data: responseData, encoding: .utf8) ?? "No response body"
+            print("Response: \(responseString)")
+
+            if httpResponse.statusCode != 200 {
+                throw URLError(.badServerResponse)
+            }
+        }
+    }
 
     private func fallbackToLocalTranscription(_ fileURL: URL) {
         // Placeholder: use Apple speech framework / Core ML
