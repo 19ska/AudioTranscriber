@@ -62,23 +62,39 @@ class AudioRecorder: NSObject, ObservableObject {
         engine.stop()
         isRecording = false
         print("Recording stopped")
+
+        if let fileURL = recordingURL {
+            transcribe(fileURL)
+        }
     }
 
     private func startNewSegment() throws {
+        let formatSettings: [String: Any] = [
+            AVFormatIDKey: kAudioFormatLinearPCM,
+            AVSampleRateKey: 44100.0,
+            AVNumberOfChannelsKey: 1,
+            AVLinearPCMBitDepthKey: 16,
+            AVLinearPCMIsFloatKey: false
+        ]
+
+        let fileURL = getUniqueRecordingURL(withExtension: "wav")
+        audioFile = try AVAudioFile(forWriting: fileURL, settings: formatSettings)
+        recordingURL = fileURL
+        print("Audio segment saved at: \(fileURL.path)")
+
         let input = engine.inputNode
         let format = input.outputFormat(forBus: 0)
-
-        let fileName = "recording_\(Int(Date().timeIntervalSince1970)).caf"
-        let fileURL = fileManager.temporaryDirectory.appendingPathComponent(fileName)
-        recordingURL = fileURL
-
-        audioFile = try AVAudioFile(forWriting: fileURL, settings: format.settings)
 
         input.installTap(onBus: 0, bufferSize: 1024, format: format) { buffer, _ in
             try? self.audioFile?.write(from: buffer)
         }
 
         print("Started segment: \(fileURL.lastPathComponent)")
+    }
+    
+    private func getUniqueRecordingURL(withExtension ext: String = "wav") -> URL {
+        let fileName = "recording_\(Int(Date().timeIntervalSince1970)).\(ext)"
+        return fileManager.temporaryDirectory.appendingPathComponent(fileName)
     }
 
     private func rotateSegment() {
@@ -108,21 +124,21 @@ class AudioRecorder: NSObject, ObservableObject {
 
         Task {
             do {
-                try await mockTranscriptionAPI(fileURL)
+                try await whisperTranscriptionAPI(fileURL: fileURL)
                 print("Transcription success: \(fileURL.lastPathComponent)")
                 retryCounts[fileURL] = 0
             } catch {
-                print("Transcription failed: \(fileURL.lastPathComponent)")
+                print(" Transcription failed: \(fileURL.lastPathComponent)")
                 let currentRetry = retryCounts[fileURL, default: 0] + 1
                 retryCounts[fileURL] = currentRetry
 
                 if currentRetry >= 5 {
-                    print("Fallback to local transcription for: \(fileURL.lastPathComponent)")
+                    print(" Fallback to local transcription for: \(fileURL.lastPathComponent)")
                     fallbackToLocalTranscription(fileURL)
                 } else {
                     failedSegments.append(fileURL)
                     let delay = pow(2.0, Double(currentRetry))
-                    print("⏳ Retrying in \(delay) sec")
+                    print(" Retrying in \(delay) sec")
                     DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
                         self.transcribe(fileURL)
                     }
@@ -130,7 +146,6 @@ class AudioRecorder: NSObject, ObservableObject {
             }
         }
     }
-    
     
     private func whisperTranscriptionAPI(fileURL: URL) async throws {
         guard let openAIKey = ProcessInfo.processInfo.environment["OPENAI_API_KEY"], !openAIKey.isEmpty else {
@@ -180,21 +195,12 @@ class AudioRecorder: NSObject, ObservableObject {
             }
         }
     }
-
     private func fallbackToLocalTranscription(_ fileURL: URL) {
         // Placeholder: use Apple speech framework / Core ML
         print("Local transcription triggered for \(fileURL.lastPathComponent)")
     }
 
-    private func mockTranscriptionAPI(_ fileURL: URL) async throws {
-        // Simulate success/failure
-        let success = Bool.random()
-        try await Task.sleep(nanoseconds: 1_000_000_000) // simulate delay
-
-        if !success {
-            throw URLError(.badServerResponse)
-        }
-    }
+    
 
     private func setupNetworkMonitor() {
         monitor = NWPathMonitor()
