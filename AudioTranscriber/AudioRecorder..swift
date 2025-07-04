@@ -1,5 +1,5 @@
 //
-//  AudioRecorder..swift
+//  AudioRecorder.swift
 //  AudioTranscriber
 //
 //  Created by Skanda Gonur Nagaraj on 7/3/25.
@@ -9,6 +9,7 @@ import Foundation
 import AVFoundation
 import SwiftUI
 import Network
+import SwiftData
 
 @MainActor
 class AudioRecorder: NSObject, ObservableObject {
@@ -19,12 +20,15 @@ class AudioRecorder: NSObject, ObservableObject {
     private var retryCounts: [URL: Int] = [:]
     private var failedSegments: [URL] = []
 
-    @Published var isRecording = false
-    @Published var recordingURL: URL?
-    
+    private var currentSession: RecordingSession?
+    private var modelContext: ModelContext?
+
     private var monitor: NWPathMonitor?
     private var isNetworkAvailable: Bool = true
     private var fallbackTriggered = false
+
+    @Published var isRecording = false
+    @Published var recordingURL: URL?
 
     override init() {
         super.init()
@@ -32,7 +36,13 @@ class AudioRecorder: NSObject, ObservableObject {
         setupNetworkMonitor()
     }
 
+    func inject(modelContext: ModelContext) {
+        self.modelContext = modelContext
+    }
+
     func startRecording() {
+        currentSession = RecordingSession(startTime: Date())
+        
         let session = AVAudioSession.sharedInstance()
         do {
             try session.setCategory(.playAndRecord, options: [.defaultToSpeaker, .allowBluetooth])
@@ -45,7 +55,6 @@ class AudioRecorder: NSObject, ObservableObject {
             isRecording = true
             print("Recording started")
 
-            // Start 30-second timer
             segmentTimer = Timer.scheduledTimer(withTimeInterval: 30.0, repeats: true) { [weak self] _ in
                 Task { await self?.rotateSegment() }
             }
@@ -65,6 +74,7 @@ class AudioRecorder: NSObject, ObservableObject {
 
         if let fileURL = recordingURL {
             transcribe(fileURL)
+           // saveSegmentToDatabase(fileURL: fileURL, transcriptText: nil)
         }
     }
 
@@ -91,21 +101,20 @@ class AudioRecorder: NSObject, ObservableObject {
 
         print("Started segment: \(fileURL.lastPathComponent)")
     }
-    
+
     private func getUniqueRecordingURL(withExtension ext: String = "wav") -> URL {
         let fileName = "recording_\(Int(Date().timeIntervalSince1970)).\(ext)"
         return fileManager.temporaryDirectory.appendingPathComponent(fileName)
     }
 
     private func rotateSegment() {
-        //print("Segment rotated at: \(Date())")
         engine.inputNode.removeTap(onBus: 0)
         engine.pause()
 
         guard let fileURL = recordingURL else { return }
 
-        // Start transcription in background
         transcribe(fileURL)
+        //saveSegmentToDatabase(fileURL: fileURL, transcriptText: "some transcription")
 
         do {
             try startNewSegment()
@@ -147,6 +156,12 @@ class AudioRecorder: NSObject, ObservableObject {
         }
     }
     
+    private func fallbackToLocalTranscription(_ fileURL: URL) {
+        // You can replace this with actual Apple Speech API later
+        print("Local transcription triggered for \(fileURL.lastPathComponent)")
+        saveSegmentToDatabase(fileURL: fileURL, transcriptText: "[Local fallback transcription]")
+    }
+
     private func whisperTranscriptionAPI(fileURL: URL) async throws {
         guard let openAIKey = ProcessInfo.processInfo.environment["OPENAI_API_KEY"], !openAIKey.isEmpty else {
             print("Missing OPENAI_API_KEY environment variable.")
@@ -175,13 +190,7 @@ class AudioRecorder: NSObject, ObservableObject {
         data.append("--\(boundary)--\r\n".data(using: .utf8)!)
 
         request.httpBody = data
-      
-        // let (_, response) = try await URLSession.shared.data(for: request)
-        // if let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode != 200 {
-        //     throw URLError(.badServerResponse)
-        // }
 
-        // New debug printing
         let (responseData, response) = try await URLSession.shared.data(for: request)
 
         if let httpResponse = response as? HTTPURLResponse {
@@ -194,13 +203,40 @@ class AudioRecorder: NSObject, ObservableObject {
                 throw URLError(.badServerResponse)
             }
         }
-    }
-    private func fallbackToLocalTranscription(_ fileURL: URL) {
-        // Placeholder: use Apple speech framework / Core ML
-        print("Local transcription triggered for \(fileURL.lastPathComponent)")
+        if let json = try? JSONSerialization.jsonObject(with: responseData) as? [String: Any],
+               let text = json["text"] as? String {
+                print("Final transcript: \(text)")
+                saveSegmentToDatabase(fileURL: fileURL, transcriptText: text)
+            }
     }
 
-    
+    private func saveSegmentToDatabase(fileURL: URL, transcriptText: String? = nil) {
+        guard let modelContext = modelContext else { return }
+
+        let segment = Segment(filePath: fileURL.path, timestamp: Date())
+
+        if let text = transcriptText {
+            let transcript = Transcript(text: text)
+            segment.transcript = transcript
+        }
+
+        currentSession?.segments.append(segment)
+
+        // Ensure session is inserted only once
+        if let session = currentSession {
+            if session.persistentModelID == nil {
+                modelContext.insert(session)
+            }
+            modelContext.insert(segment)
+            if let transcript = segment.transcript {
+                modelContext.insert(transcript)
+            }
+        }
+
+        try? modelContext.save()
+        print("Saved segment: \(segment.filePath)")
+       // print("Transcript: \(segment.transcript?.text ?? "nil")")
+    }
 
     private func setupNetworkMonitor() {
         monitor = NWPathMonitor()

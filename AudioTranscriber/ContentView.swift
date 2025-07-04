@@ -6,25 +6,45 @@
 //
 
 import SwiftUI
+import SwiftData
 
 struct ContentView: View {
+    @Environment(\.modelContext) private var modelContext
     @StateObject private var recorder = AudioRecorder()
 
     var body: some View {
-        VStack(spacing: 20) {
-            Text("Audio Transcriber")
-                .font(.title)
+        NavigationStack {
+            VStack(spacing: 20) {
+                Text("Audio Transcriber")
+                    .font(.largeTitle)
 
-            Button(action: {
-                recorder.isRecording ? recorder.stopRecording() : recorder.startRecording()
-            }) {
-                Text(recorder.isRecording ? "Stop Recording" : "Start Recording")
-                    .padding()
-                    .background(recorder.isRecording ? Color.red : Color.green)
-                    .foregroundColor(.white)
-                    .cornerRadius(10)
+                Button(action: {
+                    recorder.isRecording ? recorder.stopRecording() : recorder.startRecording()
+                }) {
+                    Text(recorder.isRecording ? "Stop Recording" : "Start Recording")
+                        .padding()
+                        .foregroundColor(.white)
+                        .background(recorder.isRecording ? Color.red : Color.green)
+                        .cornerRadius(10)
+                }
+
+                if let recordingURL = recorder.recordingURL {
+                    Text("Current File: \(recordingURL.lastPathComponent)")
+                        .font(.footnote)
+                        .padding(.top)
+                }
+
+                NavigationLink("View Past Transcripts") {
+                    SessionTranscriptView()
+                }
+                .padding()
+
+                Spacer()
+            }
+            .padding()
+            .onAppear {
+                recorder.inject(modelContext: modelContext)
             }
         }
-        .padding()
     }
 }
