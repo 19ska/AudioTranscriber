@@ -12,6 +12,42 @@ import Network
 import SwiftData
 import Speech
 
+
+enum AudioQuality: String, CaseIterable, Identifiable {
+    case low, medium, high
+
+    var id: String { rawValue }
+
+    var settings: [String: Any] {
+        switch self {
+        case .low:
+            return [
+                AVFormatIDKey: kAudioFormatLinearPCM,
+                AVSampleRateKey: 8000,
+                AVNumberOfChannelsKey: 1,
+                AVLinearPCMBitDepthKey: 8,
+                AVLinearPCMIsFloatKey: false
+            ]
+        case .medium:
+            return [
+                AVFormatIDKey: kAudioFormatLinearPCM,
+                AVSampleRateKey: 16000,
+                AVNumberOfChannelsKey: 1,
+                AVLinearPCMBitDepthKey: 16,
+                AVLinearPCMIsFloatKey: false
+            ]
+        case .high:
+            return [
+                AVFormatIDKey: kAudioFormatLinearPCM,
+                AVSampleRateKey: 44100,
+                AVNumberOfChannelsKey: 1,
+                AVLinearPCMBitDepthKey: 16,
+                AVLinearPCMIsFloatKey: false
+            ]
+        }
+    }
+}
+
 @MainActor
 class AudioRecorder: NSObject, ObservableObject {
     private let engine = AVAudioEngine()
@@ -32,6 +68,10 @@ class AudioRecorder: NSObject, ObservableObject {
     @Published var recordingURL: URL?
     @Published var isPaused = false
     @Published var volumeLevel: Float = 0.0
+    @Published var selectedQuality: AudioQuality = .medium
+    @Published var showingPermissionAlert = false
+    @Published var alertMessage = ""
+    @Published var showDiskSpaceAlert: Bool = false
 
     override init() {
         super.init()
@@ -45,17 +85,67 @@ class AudioRecorder: NSObject, ObservableObject {
     }
 
     func startRecording() {
+        switch AVAudioSession.sharedInstance().recordPermission {
+        case .granted:
+            beginRecording()
+
+        case .denied:
+            DispatchQueue.main.async {
+                self.alertMessage = "Microphone access is denied. Please enable it in Settings."
+                self.showingPermissionAlert = true
+            }
+
+        case .undetermined:
+            AVAudioSession.sharedInstance().requestRecordPermission { granted in
+                DispatchQueue.main.async {
+                    if granted {
+                        self.beginRecording()
+                    } else {
+                        self.alertMessage = "Microphone access is required to record audio."
+                        self.showingPermissionAlert = true
+                    }
+                }
+            }
+
+        @unknown default:
+            print("Unknown microphone permission status")
+        }
+    }
+    
+    
+    func beginRecording() {
         currentSession = RecordingSession(startTime: Date())
 
         let session = AVAudioSession.sharedInstance()
         do {
             try session.setCategory(.playAndRecord, options: [.defaultToSpeaker, .allowBluetooth])
             try session.setActive(true)
+            
+            guard hasSufficientDiskSpace() else {
+                DispatchQueue.main.async {
+                    self.showDiskSpaceAlert = true
+                }
+                return
+            }
+            
+            let formatSettings = selectedQuality.settings
+            let fileName = "recording_\(Date().timeIntervalSince1970).wav"
+            let fileURL = FileManager.default.temporaryDirectory.appendingPathComponent(fileName)
+            recordingURL = fileURL
 
-            try startNewSegment()
+            audioFile = try AVAudioFile(forWriting: fileURL, settings: formatSettings)
+
+            let inputNode = engine.inputNode
+            let format = inputNode.inputFormat(forBus: 0)
+
+            inputNode.installTap(onBus: 0, bufferSize: 1024, format: format) { buffer, _ in
+                self.processVolume(from: buffer)
+                try? self.audioFile?.write(from: buffer)
+            }
 
             engine.prepare()
             try engine.start()
+
             isRecording = true
             print("Recording started")
 
@@ -66,6 +156,33 @@ class AudioRecorder: NSObject, ObservableObject {
         } catch {
             print("Failed to start recording: \(error.localizedDescription)")
         }
+    }
+    
+    
+    func hasSufficientDiskSpace(thresholdInMB: Double = 50) -> Bool {
+        if let systemAttributes = try? FileManager.default.attributesOfFileSystem(forPath: NSHomeDirectory()),
+           let freeSize = systemAttributes[.systemFreeSize] as? NSNumber {
+            let freeMB = freeSize.doubleValue / (1024 * 1024)
+            return freeMB > thresholdInMB
+        }
+        return false
+    }
+    
+    func processVolume(from buffer: AVAudioPCMBuffer) {
+        guard let channelData = buffer.floatChannelData?[0] else { return }
+        let frameLength = Int(buffer.frameLength)
+        
+        
+        var sum: Float = 0
+        for i in 0..<frameLength {
+            sum += channelData[i] * channelData[i]
+        }
+        let rms = sqrt(sum / Float(frameLength)) 
+
+        
+        let normalizedVolume = CGFloat(rms) * 20
+        DispatchQueue.main.async {
+            self.volumeLevel = Float(min(max(normalizedVolume, 0), 1))        }
     }
 
     func stopRecording() {

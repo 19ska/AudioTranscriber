@@ -1,11 +1,3 @@
-//
-//  SessionDetailView.swift
-//  AudioTranscriber
-//
-//  Created by Skanda Gonur Nagaraj on 7/3/25.
-//
-
-
 import SwiftUI
 
 struct SessionDetailView: View {
@@ -34,6 +26,9 @@ struct SessionDetailView: View {
                 }
             }
             .padding(.vertical, 4)
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel("Segment recorded at \(formatted(segment.timestamp))")
+            .accessibilityHint(segment.transcript?.text ?? "Transcription pending")
         }
         .navigationTitle(formatted(session.startTime))
     }

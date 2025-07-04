@@ -1,23 +1,30 @@
 import SwiftUI
 import SwiftData
 
+import SwiftUI
+import SwiftData
+
 struct SessionListView: View {
     @Environment(\.modelContext) private var modelContext
     @EnvironmentObject var audioRecorder: AudioRecorder
 
-    @Query(sort: \RecordingSession.startTime, order: .reverse)
-    private var allSessions: [RecordingSession]
+    @State private var allSessions: [RecordingSession] = []
+    @State private var isLoading = false
+    @State private var batchSize = 10
+    @State private var currentOffset = 0
 
     @State private var searchText: String = ""
-    @State private var visibleCount = 10
     @FocusState private var isSearchFieldFocused: Bool
 
     private var filteredSessions: [RecordingSession] {
-        let filtered = searchText.isEmpty ? allSessions : allSessions.filter { session in
-            formatted(session.startTime).localizedCaseInsensitiveContains(searchText) ||
-            session.segments.contains { $0.transcript?.text.localizedCaseInsensitiveContains(searchText) ?? false }
+        if searchText.isEmpty {
+            return allSessions
+        } else {
+            return allSessions.filter { session in
+                formatted(session.startTime).localizedCaseInsensitiveContains(searchText) ||
+                session.segments.contains { $0.transcript?.text.localizedCaseInsensitiveContains(searchText) ?? false }
+            }
         }
-        return Array(filtered.prefix(visibleCount))
     }
 
     var body: some View {
@@ -64,14 +71,14 @@ struct SessionListView: View {
                                         .foregroundStyle(.secondary)
                                 }
                                 .onAppear {
-                                    if session == filteredSessions.last {
-                                        loadMoreIfNeeded()
+                                    if session == filteredSessions.last && searchText.isEmpty {
+                                        loadMoreSessions()
                                     }
                                 }
                             }
                         }
 
-                        if visibleCount < allSessions.count && searchText.isEmpty {
+                        if isLoading {
                             HStack {
                                 Spacer()
                                 ProgressView()
@@ -80,14 +87,17 @@ struct SessionListView: View {
                         }
                     }
                     .refreshable {
-                        // Pull-to-refresh logic
-                        visibleCount = 10
+                        resetAndReload()
                     }
                 }
             }
             .navigationTitle("Past Transcripts")
             .animation(.easeInOut, value: audioRecorder.isNetworkAvailable)
             .onAppear {
+                if allSessions.isEmpty {
+                    loadMoreSessions()
+                }
+
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                     isSearchFieldFocused = true
                 }
@@ -95,9 +105,35 @@ struct SessionListView: View {
         }
     }
 
-    private func loadMoreIfNeeded() {
-        guard visibleCount < allSessions.count else { return }
-        visibleCount += 10
+    private func loadMoreSessions() {
+        guard !isLoading else { return }
+        isLoading = true
+
+        Task {
+            var descriptor = FetchDescriptor<RecordingSession>(
+                sortBy: [SortDescriptor(\.startTime, order: .reverse)]
+            )
+            descriptor.fetchOffset = currentOffset
+            descriptor.fetchLimit = batchSize
+
+            do {
+                let result = try modelContext.fetch(descriptor)
+                DispatchQueue.main.async {
+                    allSessions.append(contentsOf: result)
+                    currentOffset += batchSize
+                    isLoading = false
+                }
+            } catch {
+                print("Failed to fetch sessions: \(error)")
+                isLoading = false
+            }
+        }
+    }
+
+    private func resetAndReload() {
+        allSessions.removeAll()
+        currentOffset = 0
+        loadMoreSessions()
     }
 
     private func formatted(_ date: Date) -> String {
