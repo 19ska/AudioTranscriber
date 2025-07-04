@@ -8,64 +8,83 @@
 import SwiftUI
 import SwiftData
 
-struct SessionTranscriptView: View {
+struct SessionListView: View {
     @Environment(\.modelContext) private var modelContext
-    @Query(sort: \RecordingSession.startTime, order: .reverse) var sessions: [RecordingSession]
+    @Query(sort: \RecordingSession.startTime, order: .reverse) private var allSessions: [RecordingSession]
+    
+    @State private var searchText: String = ""
+    @State private var visibleCount = 10
+    @FocusState private var isSearchFieldFocused: Bool
+
+    private var filteredSessions: [RecordingSession] {
+        let filtered = searchText.isEmpty ? allSessions : allSessions.filter { session in
+            formatted(session.startTime).localizedCaseInsensitiveContains(searchText) ||
+            session.segments.contains { $0.transcript?.text.localizedCaseInsensitiveContains(searchText) ?? false }
+        }
+        return Array(filtered.prefix(visibleCount))
+    }
 
     var body: some View {
         NavigationStack {
-            VStack {
-                Text("Sessions Loaded: \(sessions.count)")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .padding(.top)
+            VStack(spacing: 10) {
+                // Search bar with clear button
+                HStack {
+                    TextField("Search transcripts...", text: $searchText)
+                        .textFieldStyle(RoundedBorderTextFieldStyle())
+                        .padding(.horizontal)
+                        .focused($isSearchFieldFocused)
+
+                    if !searchText.isEmpty {
+                        Button(action: {
+                            searchText = ""
+                            isSearchFieldFocused = true
+                        }) {
+                            Image(systemName: "xmark.circle.fill")
+                                .foregroundColor(.gray)
+                        }
+                        .padding(.trailing)
+                    }
+                }
 
                 List {
-                    ForEach(sessions) { session in
-                        Section(header: Text("Session: \(formatted(session.startTime))")) {
-                            ForEach(session.segments) { segment in
-                                VStack(alignment: .leading, spacing: 4) {
-                                    Text("Segment: \(URL(fileURLWithPath: segment.filePath).lastPathComponent)")
-                                        .font(.subheadline)
-                                        .bold()
-                                    Text("Timestamp: \(formatted(segment.timestamp))")
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-
-                                    if let transcript = segment.transcript {
-                                        Text("Transcript:")
-                                            .font(.caption)
-                                            .foregroundStyle(.secondary)
-                                        Text(transcript.text)
-                                            .font(.body)
-                                            .foregroundStyle(.green)
-                                    } else {
-                                        Text("Transcript: Pending...")
-                                            .foregroundStyle(.orange)
-                                    }
+                    ForEach(filteredSessions) { session in
+                        NavigationLink(destination: SessionDetailView(session: session)) {
+                            VStack(alignment: .leading) {
+                                Text("Session: \(formatted(session.startTime))")
+                                    .font(.headline)
+                                Text("Segments: \(session.segments.count)")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                            .onAppear {
+                                if session == filteredSessions.last {
+                                    loadMoreIfNeeded()
                                 }
-                                .padding(.vertical, 4)
                             }
                         }
                     }
-                }
-                .id(UUID()) // Force reload on each appearance
-            }
-            .navigationTitle("Past Transcripts")
-            .onAppear {
-                print("Found \(sessions.count) sessions")
-                for session in sessions {
-                    print("Session started at: \(session.startTime)")
-                    for segment in session.segments {
-                        print("Segment: \(segment.filePath)")
-                        print("Transcript: \(segment.transcript?.text ?? "nil")")
 
-                        // Force access to trigger lazy load if needed
-                        _ = segment.transcript?.text
+                    if visibleCount < allSessions.count && searchText.isEmpty {
+                        HStack {
+                            Spacer()
+                            ProgressView()
+                            Spacer()
+                        }
                     }
                 }
             }
+            .navigationTitle("Past Transcripts")
+            .onAppear {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                    isSearchFieldFocused = true
+                }
+            }
         }
+    }
+
+    private func loadMoreIfNeeded() {
+        guard visibleCount < allSessions.count else { return }
+        visibleCount += 10
     }
 
     private func formatted(_ date: Date) -> String {

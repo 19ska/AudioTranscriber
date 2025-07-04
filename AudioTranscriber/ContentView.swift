@@ -14,30 +14,60 @@ struct ContentView: View {
 
     var body: some View {
         NavigationStack {
-            VStack(spacing: 20) {
+            VStack(spacing: 24) {
                 Text("Audio Transcriber")
                     .font(.largeTitle)
+                    .bold()
 
-                Button(action: {
-                    recorder.isRecording ? recorder.stopRecording() : recorder.startRecording()
-                }) {
-                    Text(recorder.isRecording ? "Stop Recording" : "Start Recording")
-                        .padding()
-                        .foregroundColor(.white)
-                        .background(recorder.isRecording ? Color.red : Color.green)
-                        .cornerRadius(10)
+                // Recording Status Indicator
+                HStack(spacing: 8) {
+                    Circle()
+                        .fill(recorder.isRecording ? Color.red : Color.gray)
+                        .frame(width: 12, height: 12)
+
+                    Text(recorder.isRecording ? "Recording…" : "Not Recording")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
                 }
 
+                // Recording Controls
+                HStack(spacing: 16) {
+                    Button(action: {
+                        recorder.isRecording ? recorder.stopRecording() : recorder.startRecording()
+                    }) {
+                        Label(recorder.isRecording ? "Stop" : "Start", systemImage: recorder.isRecording ? "stop.circle.fill" : "mic.circle.fill")
+                            .padding()
+                            .foregroundColor(.white)
+                            .background(recorder.isRecording ? Color.red : Color.green)
+                            .cornerRadius(12)
+                    }
+
+                    if recorder.isRecording {
+                        Button(action: {
+                            recorder.isPaused ? recorder.resumeRecording() : recorder.pauseRecording()
+                        }) {
+                            Label(recorder.isPaused ? "Resume" : "Pause",
+                                  systemImage: recorder.isPaused ? "play.circle.fill" : "pause.circle.fill")
+                                .padding()
+                                .foregroundColor(.white)
+                                .background(Color.orange)
+                                .cornerRadius(12)
+                        }
+                    }
+                }
+
+                // Show current recording file name
                 if let recordingURL = recorder.recordingURL {
                     Text("Current File: \(recordingURL.lastPathComponent)")
                         .font(.footnote)
                         .padding(.top)
                 }
 
+                // Navigation to transcripts
                 NavigationLink("View Past Transcripts") {
-                    SessionTranscriptView()
+                    SessionListView()
                 }
-                .padding()
+                .padding(.top, 20)
 
                 Spacer()
             }

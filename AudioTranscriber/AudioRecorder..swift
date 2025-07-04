@@ -29,6 +29,7 @@ class AudioRecorder: NSObject, ObservableObject {
 
     @Published var isRecording = false
     @Published var recordingURL: URL?
+    @Published var isPaused = false
 
     override init() {
         super.init()
@@ -262,6 +263,23 @@ class AudioRecorder: NSObject, ObservableObject {
         }
         failedSegments.removeAll()
     }
+    
+    func pauseRecording() {
+        engine.pause()
+        isPaused = true
+        print("Recording paused")
+    }
+
+    func resumeRecording() {
+        do {
+            try engine.start()
+            isPaused = false
+            print("Recording resumed")
+        } catch {
+            print("Failed to resume recording: \(error.localizedDescription)")
+        }
+    }
+    
 
     private func setupNotifications() {
         NotificationCenter.default.addObserver(
