@@ -205,7 +205,7 @@ class AudioRecorder: NSObject, ObservableObject {
     }
 
     private func whisperTranscriptionAPI(fileURL: URL) async throws -> String {
-        guard let openAIKey = ProcessInfo.processInfo.environment["OPENAI_API_KEY"], !openAIKey.isEmpty else {
+        guard let openAIKey = loadAPIKey(), !openAIKey.isEmpty else {
             throw NSError(domain: "OpenAIKeyError", code: 1, userInfo: [NSLocalizedDescriptionKey: "Missing API Key"])
         }
 
@@ -341,4 +341,13 @@ class AudioRecorder: NSObject, ObservableObject {
             stopRecording()
         }
     }
+}
+
+func loadAPIKey() -> String? {
+    guard let url = Bundle.main.url(forResource: "Secrets", withExtension: "plist"),
+          let data = try? Data(contentsOf: url),
+          let plist = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any] else {
+        return nil
+    }
+    return plist["OpenAIKey"] as? String
 }
