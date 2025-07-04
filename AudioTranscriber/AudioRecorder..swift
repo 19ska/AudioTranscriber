@@ -205,7 +205,7 @@ class AudioRecorder: NSObject, ObservableObject {
     }
 
     private func whisperTranscriptionAPI(fileURL: URL) async throws -> String {
-        guard let openAIKey = loadAPIKey(), !openAIKey.isEmpty else {
+        guard let openAIKey = ProcessInfo.processInfo.environment["OPENAI_API_KEY"] ?? loadAPIKey(), !openAIKey.isEmpty else {
             throw NSError(domain: "OpenAIKeyError", code: 1, userInfo: [NSLocalizedDescriptionKey: "Missing API Key"])
         }
 
@@ -247,6 +247,17 @@ class AudioRecorder: NSObject, ObservableObject {
     private func saveSegmentToDatabase(fileURL: URL, transcriptText: String? = nil) {
         guard let modelContext = modelContext else { return }
 
+       
+        let existingSegments = try? modelContext.fetch(FetchDescriptor<Segment>(
+            predicate: #Predicate { $0.filePath == fileURL.path }
+        ))
+
+        if let existing = existingSegments, !existing.isEmpty {
+            print(" Segment already exists in DB: \(fileURL.lastPathComponent)")
+            return
+        }
+
+      
         let segment = Segment(filePath: fileURL.path, timestamp: Date())
 
         if let text = transcriptText {
@@ -288,11 +299,19 @@ class AudioRecorder: NSObject, ObservableObject {
         monitor?.start(queue: queue)
     }
 
+    private let transcriptionQueue = DispatchQueue(label: "transcription.queue", attributes: .concurrent)
+
     private func retryQueuedSegments() {
-        for fileURL in failedSegments {
-            transcribe(fileURL)
-        }
+        let uniqueSegments = Set(failedSegments)
         failedSegments.removeAll()
+
+        for fileURL in uniqueSegments {
+            transcriptionQueue.async {
+                Task {
+                    await self.transcribe(fileURL)
+                }
+            }
+        }
     }
 
     func pauseRecording() {

@@ -8,11 +8,19 @@ struct ContentView: View {
     var body: some View {
         NavigationStack {
             VStack(spacing: 24) {
+                if !recorder.isNetworkAvailable {
+                        Text("You are offline")
+                            .foregroundColor(.white)
+                            .padding(8)
+                            .frame(maxWidth: .infinity)
+                            .background(Color.red)
+                            .transition(.move(edge: .top).combined(with: .opacity))
+                    }
                 Text("Audio Transcriber")
                     .font(.largeTitle)
                     .bold()
 
-                // Recording Status Indicator
+                
                 HStack(spacing: 8) {
                     Circle()
                         .fill(recorder.isRecording ? Color.red : Color.gray)
@@ -23,7 +31,7 @@ struct ContentView: View {
                         .foregroundStyle(.secondary)
                 }
 
-                // 🔊 Volume Level Bar
+                //  Volume Level Bar
                 VStack(spacing: 6) {
                     Text("Input Volume")
                         .font(.caption)
