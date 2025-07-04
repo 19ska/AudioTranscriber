@@ -1,17 +1,13 @@
-//
-//  SessionTranscriptView.swift
-//  AudioTranscriber
-//
-//  Created by Skanda Gonur Nagaraj on 7/3/25.
-//
-
 import SwiftUI
 import SwiftData
 
 struct SessionListView: View {
     @Environment(\.modelContext) private var modelContext
-    @Query(sort: \RecordingSession.startTime, order: .reverse) private var allSessions: [RecordingSession]
-    
+    @EnvironmentObject var audioRecorder: AudioRecorder
+
+    @Query(sort: \RecordingSession.startTime, order: .reverse)
+    private var allSessions: [RecordingSession]
+
     @State private var searchText: String = ""
     @State private var visibleCount = 10
     @FocusState private var isSearchFieldFocused: Bool
@@ -26,54 +22,71 @@ struct SessionListView: View {
 
     var body: some View {
         NavigationStack {
-            VStack(spacing: 10) {
-                // Search bar with clear button
-                HStack {
-                    TextField("Search transcripts...", text: $searchText)
-                        .textFieldStyle(RoundedBorderTextFieldStyle())
-                        .padding(.horizontal)
-                        .focused($isSearchFieldFocused)
-
-                    if !searchText.isEmpty {
-                        Button(action: {
-                            searchText = ""
-                            isSearchFieldFocused = true
-                        }) {
-                            Image(systemName: "xmark.circle.fill")
-                                .foregroundColor(.gray)
-                        }
-                        .padding(.trailing)
-                    }
+            VStack(spacing: 0) {
+                
+                if !audioRecorder.isNetworkAvailable {
+                    Text("You are offline")
+                        .foregroundColor(.white)
+                        .padding(8)
+                        .frame(maxWidth: .infinity)
+                        .background(Color.red)
+                        .transition(.move(edge: .top).combined(with: .opacity))
                 }
 
-                List {
-                    ForEach(filteredSessions) { session in
-                        NavigationLink(destination: SessionDetailView(session: session)) {
-                            VStack(alignment: .leading) {
-                                Text("Session: \(formatted(session.startTime))")
-                                    .font(.headline)
-                                Text("Segments: \(session.segments.count)")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
+                VStack(spacing: 10) {
+                    // Search bar
+                    HStack {
+                        TextField("Search transcripts...", text: $searchText)
+                            .textFieldStyle(RoundedBorderTextFieldStyle())
+                            .padding(.horizontal)
+                            .focused($isSearchFieldFocused)
+
+                        if !searchText.isEmpty {
+                            Button(action: {
+                                searchText = ""
+                                isSearchFieldFocused = true
+                            }) {
+                                Image(systemName: "xmark.circle.fill")
+                                    .foregroundColor(.gray)
                             }
-                            .onAppear {
-                                if session == filteredSessions.last {
-                                    loadMoreIfNeeded()
+                            .padding(.trailing)
+                        }
+                    }
+
+                    List {
+                        ForEach(filteredSessions) { session in
+                            NavigationLink(destination: SessionDetailView(session: session)) {
+                                VStack(alignment: .leading) {
+                                    Text("Session: \(formatted(session.startTime))")
+                                        .font(.headline)
+                                    Text("Segments: \(session.segments.count)")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                                .onAppear {
+                                    if session == filteredSessions.last {
+                                        loadMoreIfNeeded()
+                                    }
                                 }
                             }
                         }
-                    }
 
-                    if visibleCount < allSessions.count && searchText.isEmpty {
-                        HStack {
-                            Spacer()
-                            ProgressView()
-                            Spacer()
+                        if visibleCount < allSessions.count && searchText.isEmpty {
+                            HStack {
+                                Spacer()
+                                ProgressView()
+                                Spacer()
+                            }
                         }
+                    }
+                    .refreshable {
+                        // Pull-to-refresh logic
+                        visibleCount = 10
                     }
                 }
             }
             .navigationTitle("Past Transcripts")
+            .animation(.easeInOut, value: audioRecorder.isNetworkAvailable)
             .onAppear {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                     isSearchFieldFocused = true

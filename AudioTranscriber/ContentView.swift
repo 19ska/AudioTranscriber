@@ -1,10 +1,3 @@
-//
-//  ContentView.swift
-//  AudioTranscriber
-//
-//  Created by Skanda Gonur Nagaraj on 7/3/25.
-//
-
 import SwiftUI
 import SwiftData
 
@@ -28,6 +21,29 @@ struct ContentView: View {
                     Text(recorder.isRecording ? "Recording…" : "Not Recording")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
+                }
+
+                // 🔊 Volume Level Bar
+                VStack(spacing: 6) {
+                    Text("Input Volume")
+                        .font(.caption)
+                        .foregroundColor(.gray)
+
+                    GeometryReader { geometry in
+                        ZStack(alignment: .leading) {
+                            Rectangle()
+                                .fill(Color.gray.opacity(0.2))
+                                .frame(height: 10)
+
+                            Rectangle()
+                                .fill(Color.green)
+                                .frame(width: CGFloat(min(max(recorder.volumeLevel, 0.0), 1.0)) * geometry.size.width, height: 10)
+                                .animation(.linear(duration: 0.1), value: recorder.volumeLevel)
+                        }
+                        .cornerRadius(5)
+                    }
+                    .frame(height: 10)
+                    .padding(.horizontal)
                 }
 
                 // Recording Controls
@@ -76,5 +92,6 @@ struct ContentView: View {
                 recorder.inject(modelContext: modelContext)
             }
         }
+        .environmentObject(recorder)
     }
 }

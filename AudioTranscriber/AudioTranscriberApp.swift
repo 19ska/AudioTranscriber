@@ -1,10 +1,3 @@
-//
-//  AudioTranscriberApp.swift
-//  AudioTranscriber
-//
-//  Created by Skanda Gonur Nagaraj on 7/3/25.
-//
-
 import SwiftUI
 import SwiftData
 
@@ -25,9 +18,16 @@ struct AudioTranscriberApp: App {
         }
     }()
 
+  
+    @StateObject private var recorder = AudioRecorder()
+
     var body: some Scene {
         WindowGroup {
             ContentView()
+                .environmentObject(recorder) 
+                .onAppear {
+                    recorder.inject(modelContext: sharedModelContainer.mainContext)
+                }
         }
         .modelContainer(sharedModelContainer)
     }

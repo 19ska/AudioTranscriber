@@ -10,6 +10,7 @@ import AVFoundation
 import SwiftUI
 import Network
 import SwiftData
+import Speech
 
 @MainActor
 class AudioRecorder: NSObject, ObservableObject {
@@ -24,17 +25,19 @@ class AudioRecorder: NSObject, ObservableObject {
     private var modelContext: ModelContext?
 
     private var monitor: NWPathMonitor?
-    private var isNetworkAvailable: Bool = true
+    @Published var isNetworkAvailable: Bool = true
     private var fallbackTriggered = false
 
     @Published var isRecording = false
     @Published var recordingURL: URL?
     @Published var isPaused = false
+    @Published var volumeLevel: Float = 0.0
 
     override init() {
         super.init()
         setupNotifications()
         setupNetworkMonitor()
+        restoreFailedSegmentsFromDisk()
     }
 
     func inject(modelContext: ModelContext) {
@@ -43,7 +46,7 @@ class AudioRecorder: NSObject, ObservableObject {
 
     func startRecording() {
         currentSession = RecordingSession(startTime: Date())
-        
+
         let session = AVAudioSession.sharedInstance()
         do {
             try session.setCategory(.playAndRecord, options: [.defaultToSpeaker, .allowBluetooth])
@@ -73,9 +76,18 @@ class AudioRecorder: NSObject, ObservableObject {
         isRecording = false
         print("Recording stopped")
 
-        if let fileURL = recordingURL {
-            transcribe(fileURL)
-           // saveSegmentToDatabase(fileURL: fileURL, transcriptText: nil)
+        guard let url = recordingURL else {
+            print("No recording URL")
+            return
+        }
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            if FileManager.default.fileExists(atPath: url.path) {
+                self.transcribe(url)
+            } else {
+                print("Recorded file not found at path: \(url.path)")
+            }
+            self.recordingURL = nil
         }
     }
 
@@ -98,9 +110,24 @@ class AudioRecorder: NSObject, ObservableObject {
 
         input.installTap(onBus: 0, bufferSize: 1024, format: format) { buffer, _ in
             try? self.audioFile?.write(from: buffer)
+
+            let rms = self.computeVolumeLevel(from: buffer)
+            DispatchQueue.main.async {
+                self.volumeLevel = rms
+            }
         }
 
         print("Started segment: \(fileURL.lastPathComponent)")
+    }
+
+    private func computeVolumeLevel(from buffer: AVAudioPCMBuffer) -> Float {
+        guard let channelData = buffer.floatChannelData?[0] else { return 0 }
+
+        let frameLength = Int(buffer.frameLength)
+        let channelDataArray = Array(UnsafeBufferPointer(start: channelData, count: frameLength))
+
+        let rms = sqrt(channelDataArray.reduce(0) { $0 + $1 * $1 } / Float(frameLength))
+        return rms
     }
 
     private func getUniqueRecordingURL(withExtension ext: String = "wav") -> URL {
@@ -115,7 +142,6 @@ class AudioRecorder: NSObject, ObservableObject {
         guard let fileURL = recordingURL else { return }
 
         transcribe(fileURL)
-        //saveSegmentToDatabase(fileURL: fileURL, transcriptText: "some transcription")
 
         do {
             try startNewSegment()
@@ -129,14 +155,20 @@ class AudioRecorder: NSObject, ObservableObject {
         guard isNetworkAvailable else {
             print("Network unavailable, queued segment: \(fileURL.lastPathComponent)")
             failedSegments.append(fileURL)
+            saveFailedSegmentsToDisk()
             return
         }
 
         Task {
             do {
-                try await whisperTranscriptionAPI(fileURL: fileURL)
+                let transcriptText = try await whisperTranscriptionAPI(fileURL: fileURL)
                 print("Transcription success: \(fileURL.lastPathComponent)")
                 retryCounts[fileURL] = 0
+                self.failedSegments.removeAll { $0 == fileURL }
+
+                DispatchQueue.main.async {
+                    self.saveSegmentToDatabase(fileURL: fileURL, transcriptText: transcriptText)
+                }
             } catch {
                 print(" Transcription failed: \(fileURL.lastPathComponent)")
                 let currentRetry = retryCounts[fileURL, default: 0] + 1
@@ -156,17 +188,25 @@ class AudioRecorder: NSObject, ObservableObject {
             }
         }
     }
-    
+
     private func fallbackToLocalTranscription(_ fileURL: URL) {
-        // You can replace this with actual Apple Speech API later
-        print("Local transcription triggered for \(fileURL.lastPathComponent)")
-        saveSegmentToDatabase(fileURL: fileURL, transcriptText: "[Local fallback transcription]")
+        let recognizer = SFSpeechRecognizer(locale: Locale(identifier: "en-US"))
+        let request = SFSpeechURLRecognitionRequest(url: fileURL)
+
+        recognizer?.recognitionTask(with: request) { result, error in
+            if let error = error {
+                print("Local transcription failed: \(error.localizedDescription)")
+                self.saveSegmentToDatabase(fileURL: fileURL, transcriptText: "[Local STT failed]")
+            } else if let result = result, result.isFinal {
+                print("Local transcription: \(result.bestTranscription.formattedString)")
+                self.saveSegmentToDatabase(fileURL: fileURL, transcriptText: result.bestTranscription.formattedString)
+            }
+        }
     }
 
-    private func whisperTranscriptionAPI(fileURL: URL) async throws {
+    private func whisperTranscriptionAPI(fileURL: URL) async throws -> String {
         guard let openAIKey = ProcessInfo.processInfo.environment["OPENAI_API_KEY"], !openAIKey.isEmpty else {
-            print("Missing OPENAI_API_KEY environment variable.")
-            return
+            throw NSError(domain: "OpenAIKeyError", code: 1, userInfo: [NSLocalizedDescriptionKey: "Missing API Key"])
         }
 
         var request = URLRequest(url: URL(string: "https://api.openai.com/v1/audio/transcriptions")!)
@@ -177,38 +217,31 @@ class AudioRecorder: NSObject, ObservableObject {
         request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
 
         var data = Data()
-
         data.append("--\(boundary)\r\n".data(using: .utf8)!)
         data.append("Content-Disposition: form-data; name=\"file\"; filename=\"\(fileURL.lastPathComponent)\"\r\n".data(using: .utf8)!)
         data.append("Content-Type: audio/wav\r\n\r\n".data(using: .utf8)!)
         data.append(try Data(contentsOf: fileURL))
         data.append("\r\n".data(using: .utf8)!)
-
         data.append("--\(boundary)\r\n".data(using: .utf8)!)
         data.append("Content-Disposition: form-data; name=\"model\"\r\n\r\n".data(using: .utf8)!)
         data.append("whisper-1\r\n".data(using: .utf8)!)
-
         data.append("--\(boundary)--\r\n".data(using: .utf8)!)
 
         request.httpBody = data
 
         let (responseData, response) = try await URLSession.shared.data(for: request)
 
-        if let httpResponse = response as? HTTPURLResponse {
-            print("Status Code: \(httpResponse.statusCode)")
-
-            let responseString = String(data: responseData, encoding: .utf8) ?? "No response body"
-            print("Response: \(responseString)")
-
-            if httpResponse.statusCode != 200 {
-                throw URLError(.badServerResponse)
-            }
+        guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
+            throw URLError(.badServerResponse)
         }
+
         if let json = try? JSONSerialization.jsonObject(with: responseData) as? [String: Any],
-               let text = json["text"] as? String {
-                print("Final transcript: \(text)")
-                saveSegmentToDatabase(fileURL: fileURL, transcriptText: text)
-            }
+           let text = json["text"] as? String {
+            print("Final transcript: \(text)")
+            return text
+        } else {
+            throw URLError(.cannotParseResponse)
+        }
     }
 
     private func saveSegmentToDatabase(fileURL: URL, transcriptText: String? = nil) {
@@ -223,7 +256,6 @@ class AudioRecorder: NSObject, ObservableObject {
 
         currentSession?.segments.append(segment)
 
-        // Ensure session is inserted only once
         if let session = currentSession {
             if session.persistentModelID == nil {
                 modelContext.insert(session)
@@ -236,7 +268,6 @@ class AudioRecorder: NSObject, ObservableObject {
 
         try? modelContext.save()
         print("Saved segment: \(segment.filePath)")
-       // print("Transcript: \(segment.transcript?.text ?? "nil")")
     }
 
     private func setupNetworkMonitor() {
@@ -263,7 +294,7 @@ class AudioRecorder: NSObject, ObservableObject {
         }
         failedSegments.removeAll()
     }
-    
+
     func pauseRecording() {
         engine.pause()
         isPaused = true
@@ -279,7 +310,6 @@ class AudioRecorder: NSObject, ObservableObject {
             print("Failed to resume recording: \(error.localizedDescription)")
         }
     }
-    
 
     private func setupNotifications() {
         NotificationCenter.default.addObserver(
@@ -288,6 +318,18 @@ class AudioRecorder: NSObject, ObservableObject {
             name: AVAudioSession.interruptionNotification,
             object: nil
         )
+    }
+
+    private func saveFailedSegmentsToDisk() {
+        let paths = failedSegments.map { $0.path }
+        UserDefaults.standard.set(paths, forKey: "FailedSegmentPaths")
+    }
+
+    private func restoreFailedSegmentsFromDisk() {
+        if let paths = UserDefaults.standard.stringArray(forKey: "FailedSegmentPaths") {
+            failedSegments = paths.compactMap { URL(fileURLWithPath: $0) }
+            print("Restored \(failedSegments.count) failed segments from disk")
+        }
     }
 
     @objc private func handleInterruption(_ notification: Notification) {
