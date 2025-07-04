@@ -16,3 +16,5 @@ xcuserdata/
 
 # macOS metadata
 .DS_Store
+
+Secrets.plist
