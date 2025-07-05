@@ -43,10 +43,10 @@ https://github.com/19ska/AudioTranscriber.git
 ```
                                 
 2. Open in Xcode
-- Open 'AudioTranscriber.xcodeproj' or 'AudioTranscriber.xcworkspace' in Xcode 15+
+- Open `AudioTranscriber.xcodeproj` or `AudioTranscriber.xcworkspace` in Xcode 15+
                                 
 3. Add OpenAI API Key
-- Create a file named 'Secrets.plist' in the root directory with:
+- Create a file named `Secrets.plist` in the root directory with:
 ```
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -57,7 +57,20 @@ https://github.com/19ska/AudioTranscriber.git
 </dict>
 </plist>
 ```
- - Add 'Secrets.plist' to '.gitignore'
+ - Add `Secrets.plist` to `.gitignore`
+                                
+4. Enable Capabilities
+- Go to Signing & Capabilities tab in Xcode:
+    ✅ Background Modes → Audio, AirPlay, and Picture in Picture
+    ✅ App Sandbox → Audio Input
+    ✅ Microphone usage description in Info.plist:
+    ```
+     <key>NSMicrophoneUsageDescription</key>
+     <string>This app requires microphone access to record audio</string>
+    ```
+5. Run on Real Device
+- VoiceOver, microphone, and background audio features must be tested on a physical device.
+- Build and run via USB or WiFi connection.
                                 
 ---
 ## 🧱 Data Model
@@ -85,3 +98,17 @@ class Transcript {
     var text: String
     var segment: Segment
 }
+
+---
+## Accessibility
+- Every interactive control is labeled with `accessibilityLabel` and `accessibilityHint`
+- Live volume visualization described with percentage
+- Session and transcript views are fully accessible
+
+---
+
+## 💡 Development Notes
+- AVAudioSession interruptions and route changes are handled.
+- Audio segments are saved every 30 seconds and uploaded independently.
+- If network is offline, segments are stored and retried later.
+- Uses `@Published` properties to live update UI.
