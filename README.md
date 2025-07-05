@@ -1,22 +1,40 @@
 # 🎙️ AudioTranscriber – iOS App with Whisper Transcription
 
-**AudioTranscriber** is a robust iOS app that records audio in segments, transcribes each using OpenAI Whisper API, and stores the full session using SwiftData. It supports background recording, Bluetooth input, offline queuing, retry logic, and real-time volume monitoring.
+An iOS app built using SwiftUI and AVFoundation to record audio in real time, segment it into
+30-second chunks, and transcribe the segments using OpenAI Whisper API. The app supports background recording, audio monitoring, offline queuing, and a full SwiftData-based session management system.
 
 ---
 
-## 📱 Features
+## 🚀 Features
 
-- 🎤 Record audio in 30-second segments using `AVAudioEngine`
-- 🧠 Transcribe using OpenAI Whisper API (with exponential backoff retries)
-- 📶 Offline support with queued uploads and retry on reconnection
-- 🔊 Real-time volume meter visualization
-- 🗃️ Data persistence using SwiftData (`RecordingSession`, `Segment`, `Transcript`)
-- 🧭 VoiceOver accessibility for visually impaired users
-- 🔁 Pause/Resume recording, audio quality selector, and secure HTTPS requests
-- 📦 Local fallback using Apple’s `SFSpeechRecognizer` if Whisper fails
-- 🧪 Fully tested UI with pagination, pull-to-refresh, and interruption handling
+- Real time audio recording using `AVAudioEngine`
+- Automatic 30-second segmentation
+- Whisper API integration for transcription
+- Retry logic with exponential backoff for failures
+- Offline queuing and retry
+- Background recording support
+- Audio quality selection (low, medium, high)
+- Real-time input volume visualization
+- Data persistence using SwiftData (`RecordingSession`, `Segment`, `Transcript`)
+- VoiceOver accessibility for visually impaired users
+- Pause/Resume recording, audio quality selector, and secure HTTPS requests
+- Local fallback using Apple’s `SFSpeechRecognizer` if Whisper fails
+- Fully tested UI with pagination, pull-to-refresh, and interruption handling
+- Cloud-safe secure API key handling
 
+                                
 ---
+                                
+## 🧱 Architecture
+
+- AudioRecorder.swift – Core audio engine logic
+- ContentView.swift – Main UI for controls, volume meter, and navigation
+- SessionListView.swift – Past recordings list with pagination
+- SessionDetailView.swift – Shows transcript for each segment
+- TranscriptionService.swift – Handles communication with OpenAI Whisper
+- SwiftData Models (`RecordingSession`, `Segment`, `Transcript`)
+---
+                            
 
 ## 🧱 Data Model
 
