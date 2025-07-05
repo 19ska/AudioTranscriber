@@ -98,6 +98,8 @@ class Transcript {
     var text: String
     var segment: Segment
 }
+```
+
 
 ---
 ## Accessibility
