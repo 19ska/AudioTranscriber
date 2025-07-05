@@ -35,7 +35,31 @@ An iOS app built using SwiftUI and AVFoundation to record audio in real time, se
 - SwiftData Models (`RecordingSession`, `Segment`, `Transcript`)
 ---
                             
-
+## 🛠️ Setup Instructions
+                            
+1. Clone the Repo
+```bash
+https://github.com/19ska/AudioTranscriber.git
+```
+                                
+2. Open in Xcode
+- Open 'AudioTranscriber.xcodeproj' or 'AudioTranscriber.xcworkspace' in Xcode 15+
+                                
+3. Add OpenAI API Key
+- Create a file named 'Secrets.plist' in the root directory with:
+```
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+<key>OpenAIKey</key>
+<string>sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx</string>
+</dict>
+</plist>
+```
+ - Add 'Secrets.plist' to '.gitignore'
+                                
+---
 ## 🧱 Data Model
 
 ```swift
