@@ -118,8 +118,8 @@ class AudioRecorder: NSObject, ObservableObject {
 
         let session = AVAudioSession.sharedInstance()
         do {
-            try session.setCategory(.playAndRecord, options: [.defaultToSpeaker, .allowBluetooth])
-            try session.setActive(true)
+            try session.setCategory(.playAndRecord, mode: .default, options: [.allowBluetooth, .defaultToSpeaker, .allowBluetoothA2DP, .mixWithOthers, .duckOthers])
+            try session.setActive(true, options: .notifyOthersOnDeactivation)
             
             guard hasSufficientDiskSpace() else {
                 DispatchQueue.main.async {
