@@ -1,5 +1,6 @@
 import SwiftUI
 import SwiftData
+import Speech
 
 struct ContentView: View {
     @Environment(\.modelContext) private var modelContext
@@ -131,6 +132,24 @@ struct ContentView: View {
             .padding()
             .onAppear {
                 recorder.inject(modelContext: modelContext)
+                
+                // Request Speech Recognition permission on launch
+                    SFSpeechRecognizer.requestAuthorization { status in
+                        DispatchQueue.main.async {
+                            switch status {
+                            case .authorized:
+                                print(" Speech recognition authorized")
+                            case .denied:
+                                print(" Speech recognition denied")
+                            case .restricted:
+                                print(" Speech recognition restricted")
+                            case .notDetermined:
+                                print(" Speech recognition not determined")
+                            @unknown default:
+                                print(" Unknown speech recognition status")
+                            }
+                        }
+                    }
             }
             .alert("Microphone Access", isPresented: $recorder.showingPermissionAlert) {
                 Button("OK", role: .cancel) { }

@@ -19,11 +19,26 @@ struct SessionListView: View {
     private var filteredSessions: [RecordingSession] {
         if searchText.isEmpty {
             return allSessions
-        } else {
-            return allSessions.filter { session in
-                formatted(session.startTime).localizedCaseInsensitiveContains(searchText) ||
-                session.segments.contains { $0.transcript?.text.localizedCaseInsensitiveContains(searchText) ?? false }
+        }
+
+        let lowercasedSearch = searchText.lowercased()
+
+        return allSessions.filter { session in
+            let date = session.startTime
+
+            let dateMatch: Bool = {
+                if let parsedDate = Date.from(searchText) {
+                    return Calendar.current.isDate(date, equalTo: parsedDate, toGranularity: .day)
+                }
+                let formattedShort = DateFormatter.localizedString(from: date, dateStyle: .short, timeStyle: .none).lowercased()
+                return formatted(date).lowercased().contains(lowercasedSearch) || formattedShort.contains(lowercasedSearch)
+            }()
+
+            let textMatch = session.segments.contains {
+                $0.transcript?.text.localizedCaseInsensitiveContains(lowercasedSearch) ?? false
             }
+
+            return dateMatch || textMatch
         }
     }
 
@@ -141,5 +156,22 @@ struct SessionListView: View {
         formatter.dateStyle = .medium
         formatter.timeStyle = .short
         return formatter.string(from: date)
+    }
+    
+    
+}
+
+extension Date {
+    static func from(_ input: String) -> Date? {
+        let formats = ["yyyy-MM-dd", "MM/dd/yyyy", "MMM d, yyyy", "MMM d"]
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX") 
+        for format in formats {
+            formatter.dateFormat = format
+            if let date = formatter.date(from: input) {
+                return date
+            }
+        }
+        return nil
     }
 }

@@ -9,9 +9,14 @@ struct SessionDetailView: View {
                 Text("Segment: \(URL(fileURLWithPath: segment.filePath).lastPathComponent)")
                     .font(.subheadline)
                     .bold()
+
                 Text("Timestamp: \(formatted(segment.timestamp))")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+
+                Text("Status: \(segment.status.rawValue.capitalized)")
+                    .font(.caption2)
+                    .foregroundColor(color(for: segment.status))
 
                 if let transcript = segment.transcript {
                     Text("Transcript:")
@@ -21,7 +26,7 @@ struct SessionDetailView: View {
                         .font(.body)
                         .foregroundStyle(.green)
                 } else {
-                    Text("Transcript: Pending...")
+                    Text("Transcript: Pending…")
                         .foregroundStyle(.orange)
                 }
             }
@@ -38,5 +43,18 @@ struct SessionDetailView: View {
         formatter.dateStyle = .medium
         formatter.timeStyle = .short
         return formatter.string(from: date)
+    }
+    
+    private func color(for status: TranscriptionStatus) -> Color {
+        switch status {
+        case .pending:
+            return .orange
+        case .success:
+            return .green
+        case .failed:
+            return .red
+        case .fallback:
+            return .blue
+        }
     }
 }
